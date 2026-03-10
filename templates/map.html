@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html>
+<head>
+
+<title>Disaster Map</title>
+
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+
+<style>
+#map{
+height:90vh;
+}
+</style>
+
+</head>
+
+<body>
+
+<h2 style="text-align:center;">Mizoram Disaster Map</h2>
+
+<div id="map"></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+<script>
+
+var map = L.map('map').setView([23.1645, 92.9376], 7);
+
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+attribution: '© OpenStreetMap'
+}).addTo(map);
+
+{% for r in reports %}
+
+L.marker([23.1645, 92.9376]).addTo(map)
+.bindPopup("<b>{{ r.disaster_name }}</b><br>{{ r.location }}");
+
+{% endfor %}
+
+var reports = {{ reports | tojson }};
+
+reports.forEach(function(report){
+
+    if(report.latitude && report.longitude){
+
+        var marker = L.marker([report.latitude, report.longitude]).addTo(map);
+
+        marker.bindPopup(
+            "<b>" + report.disaster_name + "</b><br>" +
+            "Location: " + report.location + "<br>" +
+            "Description: " + report.description + "<br>" +
+            "Reported by: " + report.name
+        );
+
+    }
+
+});
+
+</script>
+
+</body>
+</html>
