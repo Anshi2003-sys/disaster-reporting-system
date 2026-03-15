@@ -23,7 +23,9 @@ def init_db():
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS users (
         user_id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT NOT NULL
+        name TEXT NOT NULL,
+        email TEXT UNIQUE,
+        password TEXT
     )
     """)
 
@@ -43,6 +45,10 @@ def init_db():
         disaster_id INTEGER,
         location TEXT,
         description TEXT,
+        latitude REAL,
+        longitude REAL,
+        reported_by TEXT,
+        status TEXT DEFAULT 'Pending',          
         FOREIGN KEY (user_id) REFERENCES users(user_id),
         FOREIGN KEY (disaster_id) REFERENCES disasters(disaster_id)
     )
@@ -86,18 +92,84 @@ def home():
 
     return render_template("index.html", reports=reports)
 
+# ---------------- USER REGISTER ----------------
+@app.route("/register", methods=["GET","POST"])
+def register():
 
+    if request.method == "POST":
+
+        name = request.form["name"]
+        email = request.form["email"]
+        password = request.form["password"]
+
+        conn = sqlite3.connect("database.db")
+
+        conn.execute(
+        "INSERT INTO users (name,email,password) VALUES (?,?,?)",
+        (name,email,password)
+        )
+
+        conn.commit()
+        conn.close()
+
+        return redirect("/login")
+
+    return render_template("register.html")
+
+
+# ---------------- USER LOGIN ----------------
+
+@app.route("/login", methods=["GET","POST"])
+def login():
+
+    if request.method == "POST":
+
+        email = request.form["email"]
+        password = request.form["password"]
+
+        conn = sqlite3.connect("database.db")
+        conn.row_factory = sqlite3.Row
+
+        user = conn.execute(
+        "SELECT * FROM users WHERE email=? AND password=?",
+        (email,password)
+        ).fetchone()
+
+        conn.close()
+
+        if user:
+
+            session["user_id"] = user["user_id"]
+            session["user_name"] = user["name"]
+
+            return redirect("/")
+
+        else:
+            return "Invalid Login"
+
+    return render_template("login.html")
+
+# ---------------- USER LOGOUT ----------------
+@app.route("/user_logout")
+def user_logout():
+
+    session.pop("user_id", None)
+    session.pop("user_name", None)
+
+    return redirect("/")
 # ---------------- REPORT DISASTER ----------------
 @app.route("/report", methods=["GET", "POST"])
 def report():
 
     conn = get_db_connection()
 
+    if "user_id" not in session:
+     return redirect("/login")
+
     disasters = conn.execute("SELECT * FROM disasters").fetchall()
 
     if request.method == "POST":
-
-        name = request.form["name"]
+        user_id = session["user_id"]
         location = request.form["location"]
         disaster = request.form["disaster"]
         description = request.form["description"]
@@ -106,21 +178,29 @@ def report():
 
         # Insert user
         cursor = conn.cursor()
-        cursor.execute("INSERT INTO users (name) VALUES (?)", (name,))
-        user_id = cursor.lastrowid
-
+       
+        user_id = session["user_id"]
         # Get disaster id
         cursor.execute(
             "SELECT disaster_id FROM disasters WHERE disaster_name=?",
             (disaster,)
         )
-        disaster_id = cursor.fetchone()[0]
+        result = cursor.fetchone()
+
+        if result:
+         disaster_id = result[0]
+        else:
+         return "Disaster type not found in database"
 
         # Insert report
         cursor.execute("""
-            INSERT INTO reports (user_id, disaster_id, location, description,latitude, longitude)
-            VALUES (?, ?, ?, ?,?,?)
-        """, (user_id, disaster_id, location, description,latitude, longitude))
+         INSERT INTO reports 
+        (user_id, disaster_id, location, description, latitude, longitude, reported_by)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (user_id, disaster_id, location, description, latitude, longitude, "User"))
+
+        disaster = request.form["disaster"]
+        print("Disaster from form:", disaster)
 
         conn.commit()
         conn.close()
@@ -135,7 +215,23 @@ def report():
 # ---------------- ALERTS PAGE ----------------
 @app.route("/alerts")
 def alerts():
-    return render_template("alerts.html")
+     conn = sqlite3.connect("database.db")
+     conn.row_factory = sqlite3.Row
+
+     reports = conn.execute("""
+       SELECT reports.*, disasters.disaster_name, users.name
+        FROM reports
+        LEFT JOIN users ON reports.user_id = users.user_id
+        JOIN disasters ON reports.disaster_id = disasters.disaster_id
+        ORDER BY reports.report_id DESC
+    """).fetchall()
+     conn.close()
+     return render_template("alerts.html",reports=reports)
+
+# ---------------- ABOUT PAGE ----------------
+@app.route("/about")
+def about():
+    return render_template("about.html")
 
 
 # ---------------- MAP PAGE ----------------
@@ -146,16 +242,17 @@ def map_page():
     conn.row_factory = sqlite3.Row
 
     rows = conn.execute("""
-        SELECT reports.report_id,
-               users.name,
-               disasters.disaster_name,
-               reports.location,
-               reports.description,
-               reports.latitude,
-               reports.longitude
-        FROM reports
-        JOIN users ON reports.user_id = users.user_id
-        JOIN disasters ON reports.disaster_id = disasters.disaster_id
+    SELECT reports.report_id,
+       users.name,
+       disasters.disaster_name,
+       reports.location,
+       reports.description,
+       reports.latitude,
+       reports.longitude,
+       reports.reported_by
+    FROM reports
+    LEFT JOIN users ON reports.user_id = users.user_id
+    JOIN disasters ON reports.disaster_id = disasters.disaster_id
     """).fetchall()
 
     conn.close()
@@ -175,7 +272,7 @@ def admin_login():
 
         if admin_id == "admin" and password == "1234":
             session["admin"] = True
-            return redirect(url_for("admin"))
+            return redirect(url_for("admin_dashboard"))
 
         else:
             return "Invalid Admin Credentials"
@@ -189,30 +286,46 @@ def logout():
     session.pop("admin", None)
     return redirect(url_for("admin_login"))
 
+
 # ---------------- ADMIN DASHBOARD ----------------
-@app.route("/admin")
-def admin():
+@app.route("/admin_dashboard")
+def admin_dashboard():
 
     if "admin" not in session:
         return redirect(url_for("admin_login"))
-    
+
     conn = sqlite3.connect("database.db")
     conn.row_factory = sqlite3.Row
 
+    total_reports = conn.execute(
+    "SELECT COUNT(*) FROM reports").fetchone()[0]
+
+    pending_reports = conn.execute(
+    "SELECT COUNT(*) FROM reports WHERE status='Pending'").fetchone()[0]
+
+    approved_reports = conn.execute(
+    "SELECT COUNT(*) FROM reports WHERE status='Approved'").fetchone()[0]
+
     reports = conn.execute("""
-        SELECT reports.report_id, users.name, disasters.disaster_name,
-               reports.location, reports.description
-        FROM reports
-        JOIN users ON reports.user_id = users.user_id
-        JOIN disasters ON reports.disaster_id = disasters.disaster_id
-        ORDER BY reports.report_id DESC
+    SELECT reports.*, disasters.disaster_name
+    FROM reports
+    JOIN disasters
+    ON reports.disaster_id = disasters.disaster_id
+    ORDER BY reports.report_id DESC
+    LIMIT 5
     """).fetchall()
 
     conn.close()
 
-    return render_template("admin.html", reports=reports)
+    return render_template(
+    "admin_dashboard.html",
+    total_reports=total_reports,
+    pending_reports=pending_reports,
+    approved_reports=approved_reports,
+    reports=reports
+    )
 
-# ---------------- DELETE REPORT ----------------
+# # ---------------- DELETE REPORT ----------------
 @app.route("/delete/<int:id>")
 def delete(id):
 
@@ -220,10 +333,84 @@ def delete(id):
     conn.execute("DELETE FROM reports WHERE report_id = ?", (id,))
     conn.commit()
     conn.close()
+    return redirect(url_for("admin_dashboard"))
+# ---------------- Approve  REPORT ----------------
+@app.route("/approve/<int:id>")
+def approve(id):
 
-    return redirect(url_for("admin"))
+    conn = sqlite3.connect("database.db")
+    conn.execute(
+    "UPDATE reports SET status='Confirmed by Admin' WHERE report_id=?", (id,)
+    )
+    conn.commit()
+    conn.close()
+
+    return redirect("/admin_dashboard")
+
+# ---------------- Reject REPORT ----------------
+@app.route("/reject/<int:id>")
+def reject(id):
+
+    conn = sqlite3.connect("database.db")
+    conn.execute(
+    "UPDATE reports SET status='Rejected by Admin' WHERE report_id=?", (id,)
+    )
+    conn.commit()
+    conn.close()
+
+    return redirect("/admin_dashboard")
 
 
+# ----------------ADMIN REPORT ----------------
+@app.route("/admin_report", methods=["GET", "POST"])
+def admin_report():
+
+    conn = sqlite3.connect("database.db")
+    conn.row_factory = sqlite3.Row
+
+    disasters = conn.execute("SELECT * FROM disasters").fetchall()
+
+    if request.method == "POST":
+
+        disaster_id = request.form["disaster_id"]
+        location = request.form["location"]
+        latitude = request.form["latitude"]
+        longitude = request.form["longitude"]
+        description = request.form["description"]
+
+        conn.execute("""
+        INSERT INTO reports
+        (disaster_id, location, latitude, longitude, description, reported_by, status)
+        VALUES (?, ?, ?, ?, ?, 'Admin', 'Confirmed by Admin')
+        """, (disaster_id, location, latitude, longitude, description))
+
+        conn.commit()
+        conn.close()
+
+        return redirect("/admin_dashboard")
+
+    conn.close()
+    return render_template("admin_report.html", disasters=disasters)
+# ----------------ANALYTICS  ----------------
+@app.route("/analytics")
+def analytics():
+
+    conn = sqlite3.connect("database.db")
+    conn.row_factory = sqlite3.Row
+
+    data = conn.execute("""
+        SELECT disasters.disaster_name, COUNT(*) as total
+        FROM reports
+        JOIN disasters ON reports.disaster_id = disasters.disaster_id
+        GROUP BY disasters.disaster_name
+    """).fetchall()
+
+    conn.close()
+
+    labels = [row["disaster_name"] for row in data]
+    values = [row["total"] for row in data]
+
+    return render_template("analytics.html", labels=labels, values=values)
 # ---------------- RUN APP ----------------
 if __name__ == "__main__":
     app.run(debug=True)
