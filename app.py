@@ -56,7 +56,8 @@ def init_db():
         latitude REAL,
         longitude REAL,
         reported_by TEXT,
-        status TEXT DEFAULT 'Pending',          
+        status TEXT DEFAULT 'Pending',  
+        image TEXT,        
         FOREIGN KEY (user_id) REFERENCES users(user_id),
         FOREIGN KEY (disaster_id) REFERENCES disasters(disaster_id)
     )
@@ -214,9 +215,9 @@ def report():
         # Insert report
         cursor.execute("""
          INSERT INTO reports 
-        (user_id, disaster_id, location, description, latitude, longitude, reported_by)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-        """, (user_id, disaster_id, location, description, latitude, longitude, "User"))
+        (user_id, disaster_id, location, description, latitude, longitude, reported_by,image)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """, (user_id, disaster_id, location, description, latitude, longitude, "User",filename))
 
         disaster = request.form["disaster"]
         print("Disaster from form:", disaster)
