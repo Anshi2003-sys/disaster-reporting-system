@@ -1,11 +1,19 @@
-from flask import Flask, render_template, request, redirect, url_for,session
+import os
 import sqlite3
+from flask import Flask, render_template, request, redirect, session, url_for
+from werkzeug.utils import secure_filename
 
 app = Flask(__name__)
 app.secret_key = "disaster_secret_key"
-
 DATABASE = "database.db"
 
+# Upload config
+UPLOAD_FOLDER = 'static/uploads'
+app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+
+# Ensure folder exists
+if not os.path.exists(UPLOAD_FOLDER):
+    os.makedirs(UPLOAD_FOLDER)
 
 # ---------------- DATABASE CONNECTION ----------------
 def get_db_connection():
@@ -176,9 +184,20 @@ def report():
         latitude = request.form["latitude"]
         longitude = request.form["longitude"]
 
+         # IMAGE HANDLING
+        image = request.files['image']
+        filename = None
+
+        if image and image.filename != "":
+            filename = secure_filename(image.filename)
+            image.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
+
+        conn = sqlite3.connect('database.db')
+        cursor = conn.cursor()
+
+
         # Insert user
         cursor = conn.cursor()
-       
         user_id = session["user_id"]
         # Get disaster id
         cursor.execute(
@@ -411,6 +430,7 @@ def analytics():
     values = [row["total"] for row in data]
 
     return render_template("analytics.html", labels=labels, values=values)
+
 # ---------------- RUN APP ----------------
 if __name__ == "__main__":
     app.run(debug=True)

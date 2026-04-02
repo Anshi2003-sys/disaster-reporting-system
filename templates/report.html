@@ -8,8 +8,6 @@
 <link rel="stylesheet"
 href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
 
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
-
 </head>
 
 <body>
@@ -20,141 +18,102 @@ href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
 
 <div class="card shadow p-4">
 
-<form method="POST">
+<form method="POST" enctype="multipart/form-data">
 
-<label>Select Location</label>
+<!-- AUTO LOCATION FIELD -->
+<label>Location (Auto-detected)</label>
+<input type="text" id="location" name="location" class="form-control" readonly required>
 
-<select id="location" name="location" required>
+<br>
 
-<option value="">Select District</option>
-
-<option value="Aizawl">Aizawl</option>
-<option value="Champhai">Champhai</option>
-<option value="Lunglei">Lunglei</option>
-<option value="Serchhip">Serchhip</option>
-<option value="Kolasib">Kolasib</option>
-<option value="Mamit">Mamit</option>
-<option value="Saiha">Saiha</option>
-<option value="Lawngtlai">Lawngtlai</option>
-<option value="Hnahthial">Hnahthial</option>
-<option value="Khawzawl">Khawzawl</option>
-<option value="Saitual">Saitual</option>
-
-</select>
-
-<br><br>
-
+<!-- LATITUDE -->
 <label>Latitude</label>
-<input type="text" id="latitude" name="latitude" readonly>
+<input type="text" id="latitude" name="latitude" class="form-control" readonly>
 
-<br><br>
+<br>
 
+<!-- LONGITUDE -->
 <label>Longitude</label>
-<input type="text" id="longitude" name="longitude" readonly>
+<input type="text" id="longitude" name="longitude" class="form-control" readonly>
 
+<br>
+
+<!-- DISASTER TYPE -->
 <div class="mb-3">
 <label class="form-label">Disaster Type</label>
 
-<select name="disaster" class="form-control">
-
+<select name="disaster" class="form-control" required>
 <option>Flood</option>
 <option>Earthquake</option>
 <option>Fire</option>
 <option>Landslide</option>
-<!-- <option>Cyclone</option> -->
+<option>Cyclone</option>
 </select>
 
 </div>
 
+<!-- DESCRIPTION -->
 <div class="mb-3">
 <label class="form-label">Description</label>
 <textarea name="description" class="form-control" rows="4"></textarea>
 </div>
 
-<div id="map" style="height:0px;"></div>
-
-<script>
-var map = L.map('map').setView([23.1645, 92.9376], 7);
-
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
-
-var marker;
-
-map.on('click', function(e){
-
-    if(marker){
-        map.removeLayer(marker);
-    }
-
-    marker = L.marker(e.latlng).addTo(map);
-
-    document.getElementById("latitude").value = e.latlng.lat;
-    document.getElementById("longitude").value = e.latlng.lng;
-
-});
-
-</script>
-
+<!-- IMAGE UPLOAD -->
+<div class="mb-3">
+<label class="form-label">Upload Image</label>
+<input type="file" name="image" class="form-control" accept="image/*">
+</div>
 
 <button class="btn btn-danger w-100">Submit Report</button>
+
 </form>
 </div>
 </div>
 
-
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<!-- <script>var map = L.map('map').setView([23.1645, 92.9376], 7); // Mizoram center
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '© OpenStreetMap'
-}).addTo(map);
-
-var marker;
-
-map.on('click', function(e){
-
-    if(marker){
-        map.removeLayer(marker);
-    }
-
-    marker = L.marker(e.latlng).addTo(map);
-
-    document.getElementById("latitude").value = e.latlng.lat;
-    document.getElementById("longitude").value = e.latlng.lng;
-
-});
-</script> -->
+<!-- ================= AUTO LOCATION SCRIPT ================= -->
 
 <script>
-
-var locations = {
-
-"Aizawl": [23.7271, 92.7176],
-"Champhai": [23.4560, 93.3250],
-"Lunglei": [22.8671, 92.7654],
-"Serchhip": [23.2987, 92.8535],
-"Kolasib": [24.2239, 92.6781],
-"Mamit": [23.9273, 92.4894],
-"Saiha": [22.4918, 92.9814],
-"Lawngtlai": [22.5290, 92.8930],
-"Hnahthial": [22.9667, 92.9333],
-"Khawzawl": [23.3167, 93.0167],
-"Saitual": [23.9667, 92.5833]
-
+window.onload = function () {
+    if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(success, error);
+    } else {
+        alert("Geolocation is not supported by this browser.");
+    }
 };
 
-document.getElementById("location").addEventListener("change", function(){
+function success(position) {
 
-var place = this.value;
+    let lat = position.coords.latitude;
+    let lon = position.coords.longitude;
 
-if(locations[place]){
+    document.getElementById("latitude").value = lat;
+    document.getElementById("longitude").value = lon;
 
-document.getElementById("latitude").value = locations[place][0];
-document.getElementById("longitude").value = locations[place][1];
+    fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json`)
+        .then(res => res.json())
+        .then(data => {
 
+            let address = data.address;
+
+            let place =
+                (address.suburb || address.village || "") + ", " +
+                (address.county || address.city_district || "") + ", " +
+                (address.state || "");
+
+            place = place.replace(/^,|,$/g, '').replace(/,,+/g, ',');
+
+            document.getElementById("location").value = place;
+
+        })
+        .catch(err => {
+            console.log("Location fetch failed");
+            document.getElementById("location").value = "Location not found";
+        });
 }
 
-});
-
+function error() {
+    alert("Please allow location access to auto-fill details.");
+}
 </script>
 
 </body>

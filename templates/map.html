@@ -5,6 +5,10 @@
 <title>Disaster Map</title>
 
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<link rel="stylesheet"
+href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
+
+<link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 
 <style>
 #map{
@@ -24,33 +28,60 @@ height:90vh;
 
 <script>
 var map = L.map('map').setView([23.1645, 92.9376], 7);
+
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-attribution: '© OpenStreetMap'
+    attribution: '© OpenStreetMap'
 }).addTo(map);
-{% for r in reports %}
-L.marker([23.1645, 92.9376]).addTo(map)
-.bindPopup("<b>{{ r.disaster_name }}</b><br>{{ r.location }}");
-{% endfor %}
 
 var reports = {{ reports | tojson }};
 
+var markers = [];
+
 reports.forEach(function(report){
 
-    var marker = L.marker([report.latitude, report.longitude]).addTo(map);
+    // Ensure correct numeric coordinates
+    var lat = parseFloat(report.latitude);
+    var lon = parseFloat(report.longitude);
 
-marker.bindPopup(
+    if (!lat || !lon) return; // skip invalid data
 
-"<b>Disaster:</b> " + report.disaster_name +
-"<br><b>Location:</b> " + report.location +
-"<br><b>Status:</b> " + report.status +
-"<br><b>Reported by:</b> " + report.reported_by +
-"<br><b>Description:</b> " + report.description
+    var marker = L.marker([lat, lon]).addTo(map);
+    markers.push(marker);
 
-);
+    // Popup content
+    var popupContent =
+        "<b>Disaster:</b> " + report.disaster_name +
+        "<br><b>Location:</b> " + report.location +
+        "<br><b>Status:</b> " + report.status +
+        "<br><b>Reported by:</b> " + report.reported_by +
+        "<br><b>Description:</b> " + report.description;
 
-});;
+    marker.bindPopup(popupContent, {
+        closeButton: false,
+        autoClose: false,
+        closeOnClick: false
+    });
 
+    // SHOW on hover
+    marker.on('mouseover', function () {
+        this.openPopup();
+    });
 
+    // HIDE on mouse out (with slight delay for smooth UX)
+    marker.on('mouseout', function () {
+        let that = this;
+        setTimeout(function(){
+            that.closePopup();
+        }, 200);
+    });
+
+});
+
+// Auto-fit map to all markers
+if (markers.length > 0) {
+    var group = new L.featureGroup(markers);
+    map.fitBounds(group.getBounds());
+}
 </script>
 
 </body>
