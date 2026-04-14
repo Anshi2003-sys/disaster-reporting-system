@@ -34,6 +34,9 @@ CREATE TABLE reports (
 )
 """)
 
+
+
+
 # Insert disaster types
 cursor.execute("INSERT INTO disasters (disaster_name) VALUES ('Flood')")
 cursor.execute("INSERT INTO disasters (disaster_name) VALUES ('Earthquake')")

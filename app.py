@@ -174,7 +174,6 @@ def report():
 
     if "user_id" not in session:
      return redirect("/login")
-
     disasters = conn.execute("SELECT * FROM disasters").fetchall()
 
     if request.method == "POST":
@@ -184,22 +183,28 @@ def report():
         description = request.form["description"]
         latitude = request.form["latitude"]
         longitude = request.form["longitude"]
-
+        
+         # 🔥 AUTO SEVERITY DETECTION
+        if any(word in description for word in ["dead", "collapse", "destroyed", "severe", "critical"]):
+            severity = "HIGH"
+        elif any(word in description for word in ["damage", "injured", "flooded", "fire"]):
+            severity = "MEDIUM"
+        else:
+            severity = "LOW"
+        
          # IMAGE HANDLING
         image = request.files['image']
         filename = None
-
         if image and image.filename != "":
             filename = secure_filename(image.filename)
             image.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
-
         conn = sqlite3.connect('database.db')
         cursor = conn.cursor()
-
 
         # Insert user
         cursor = conn.cursor()
         user_id = session["user_id"]
+       
         # Get disaster id
         cursor.execute(
             "SELECT disaster_id FROM disasters WHERE disaster_name=?",
@@ -215,22 +220,20 @@ def report():
         # Insert report
         cursor.execute("""
          INSERT INTO reports 
-        (user_id, disaster_id, location, description, latitude, longitude, reported_by,image)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        """, (user_id, disaster_id, location, description, latitude, longitude, "User",filename))
+        (user_id, disaster_id, location, description, latitude, longitude, reported_by,image, severity)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (user_id, disaster_id, location, description, latitude, longitude, "User",filename,severity))
 
         disaster = request.form["disaster"]
         print("Disaster from form:", disaster)
 
         conn.commit()
         conn.close()
-
         return redirect(url_for("home"))
-
+       
     conn.close()
-
     return render_template("report.html", disasters=disasters)
-
+ 
 
 # ---------------- ALERTS PAGE ----------------
 @app.route("/alerts")
@@ -411,6 +414,7 @@ def admin_report():
 
     conn.close()
     return render_template("admin_report.html", disasters=disasters)
+
 # ----------------ANALYTICS  ----------------
 @app.route("/analytics")
 def analytics():
@@ -431,6 +435,19 @@ def analytics():
     values = [row["total"] for row in data]
 
     return render_template("analytics.html", labels=labels, values=values)
+
+# ----------------Emergency----------------
+@app.route('/emergency')
+def emergency():
+    import sqlite3
+
+    conn = sqlite3.connect('database.db')
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM emergency_contacts ORDER BY district")
+    contacts = cursor.fetchall()
+    conn.close()
+    return render_template('emergency.html', contacts=contacts)
 
 # ---------------- RUN APP ----------------
 if __name__ == "__main__":
