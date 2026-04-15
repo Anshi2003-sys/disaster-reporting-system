@@ -42,7 +42,7 @@
                     
 
                     <!-- 🖼️ IMAGE (ABOVE DESCRIPTION) -->
-                     <b>Image:</b>
+                    <b>Image:</b>
                     {% if r.image %}
                     <a href="{{ url_for('static', filename='uploads/' + r.image) }}" target="_blank">
                         <img src="{{ url_for('static', filename='uploads/' + r.image) }}" 
@@ -54,6 +54,25 @@
                     <!-- 📝 Description -->
                     <p class="mb-2">
                         <b>Description:</b> {{ r.description }}
+                    </p>
+
+                    <!-- 🤖 AI SEVERITY -->
+                    <p class="mb-2">
+                        <b>AI Severity:</b>
+                        
+                        {% if r.severity == "High" %}
+                            <span class="badge bg-danger">🔴 High</span>
+                        {% elif r.severity == "Medium" %}
+                            <span class="badge bg-warning text-dark">🟡 Medium</span>
+                        {% else %}
+                            <span class="badge bg-success">🟢 Low</span>
+                        {% endif %}
+                    </p>
+
+                    <!-- 🧠 AI KEYWORDS -->
+                    <p class="mb-2">
+                        <b>AI Keywords:</b> 
+                        <span class="text-primary">{{ r.keywords }}</span>
                     </p>
 
                     <!-- 🏷️ Report Type -->

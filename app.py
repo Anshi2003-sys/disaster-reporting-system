@@ -3,6 +3,10 @@ import sqlite3
 from flask import Flask, render_template, request, redirect, session, url_for
 from werkzeug.utils import secure_filename
 
+import spacy
+# Load NLP model (run only once when app starts)
+nlp = spacy.load("en_core_web_sm")
+
 app = Flask(__name__)
 app.secret_key = "disaster_secret_key"
 DATABASE = "database.db"
@@ -45,7 +49,7 @@ def init_db():
     )
     """)
 
-    # REPORTS TABLE
+    # REPORTS TABLE (UPDATED)
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS reports (
         report_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -57,7 +61,9 @@ def init_db():
         longitude REAL,
         reported_by TEXT,
         status TEXT DEFAULT 'Pending',  
-        image TEXT,        
+        image TEXT,
+        severity TEXT,
+        keywords TEXT,
         FOREIGN KEY (user_id) REFERENCES users(user_id),
         FOREIGN KEY (disaster_id) REFERENCES disasters(disaster_id)
     )
@@ -81,6 +87,28 @@ def init_db():
 init_db()
 
 
+# ---------------- AI NLP FUNCTION ----------------
+def analyze_description(text):
+    doc = nlp(text.lower())
+
+    keywords = [token.text for token in doc if token.is_alpha and not token.is_stop]
+
+    high_words = ["dead", "trapped", "urgent", "help", "collapsed", "flooded", "critical"]
+    medium_words = ["damage", "water", "fire", "injured", "crack","awmlo"]
+
+    severity = "Low"
+
+    # 🔥 FIXED LOGIC
+    text_lower = text.lower()
+
+    if any(word in text_lower for word in high_words):
+        severity = "High"
+    elif any(word in text_lower for word in medium_words):
+        severity = "Medium"
+
+    return severity, keywords
+
+
 # ---------------- HOME PAGE ----------------
 @app.route("/")
 def home():
@@ -100,6 +128,7 @@ def home():
     conn.close()
 
     return render_template("index.html", reports=reports)
+
 
 # ---------------- USER REGISTER ----------------
 @app.route("/register", methods=["GET","POST"])
@@ -127,7 +156,6 @@ def register():
 
 
 # ---------------- USER LOGIN ----------------
-
 @app.route("/login", methods=["GET","POST"])
 def login():
 
@@ -158,6 +186,7 @@ def login():
 
     return render_template("login.html")
 
+
 # ---------------- USER LOGOUT ----------------
 @app.route("/user_logout")
 def user_logout():
@@ -166,6 +195,8 @@ def user_logout():
     session.pop("user_name", None)
 
     return redirect("/")
+
+
 # ---------------- REPORT DISASTER ----------------
 @app.route("/report", methods=["GET", "POST"])
 def report():
@@ -173,7 +204,8 @@ def report():
     conn = get_db_connection()
 
     if "user_id" not in session:
-     return redirect("/login")
+        return redirect("/login")
+
     disasters = conn.execute("SELECT * FROM disasters").fetchall()
 
     if request.method == "POST":
@@ -183,28 +215,20 @@ def report():
         description = request.form["description"]
         latitude = request.form["latitude"]
         longitude = request.form["longitude"]
-        
-         # 🔥 AUTO SEVERITY DETECTION
-        if any(word in description for word in ["dead", "collapse", "destroyed", "severe", "critical"]):
-            severity = "HIGH"
-        elif any(word in description for word in ["damage", "injured", "flooded", "fire"]):
-            severity = "MEDIUM"
-        else:
-            severity = "LOW"
-        
-         # IMAGE HANDLING
+
+        # 🤖 AI NLP ANALYSIS
+        severity, keywords = analyze_description(description)
+
+        # IMAGE HANDLING
         image = request.files['image']
         filename = None
         if image and image.filename != "":
             filename = secure_filename(image.filename)
             image.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
+
         conn = sqlite3.connect('database.db')
         cursor = conn.cursor()
 
-        # Insert user
-        cursor = conn.cursor()
-        user_id = session["user_id"]
-       
         # Get disaster id
         cursor.execute(
             "SELECT disaster_id FROM disasters WHERE disaster_name=?",
@@ -213,27 +237,24 @@ def report():
         result = cursor.fetchone()
 
         if result:
-         disaster_id = result[0]
+            disaster_id = result[0]
         else:
-         return "Disaster type not found in database"
+            return "Disaster type not found in database"
 
-        # Insert report
+        # Insert report (UPDATED)
         cursor.execute("""
-         INSERT INTO reports 
-        (user_id, disaster_id, location, description, latitude, longitude, reported_by,image, severity)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (user_id, disaster_id, location, description, latitude, longitude, "User",filename,severity))
-
-        disaster = request.form["disaster"]
-        print("Disaster from form:", disaster)
+        INSERT INTO reports 
+        (user_id, disaster_id, location, description, latitude, longitude, reported_by, image, severity, keywords)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (user_id, disaster_id, location, description, latitude, longitude, "User", filename, severity, ", ".join(keywords)))
 
         conn.commit()
         conn.close()
         return redirect(url_for("home"))
-       
+
     conn.close()
     return render_template("report.html", disasters=disasters)
- 
+
 
 # ---------------- ALERTS PAGE ----------------
 @app.route("/alerts")
@@ -250,6 +271,7 @@ def alerts():
     """).fetchall()
      conn.close()
      return render_template("alerts.html",reports=reports)
+
 
 # ---------------- ABOUT PAGE ----------------
 @app.route("/about")
@@ -272,7 +294,8 @@ def map_page():
        reports.description,
        reports.latitude,
        reports.longitude,
-       reports.reported_by
+       reports.reported_by,
+       reports.severity                 
     FROM reports
     LEFT JOIN users ON reports.user_id = users.user_id
     JOIN disasters ON reports.disaster_id = disasters.disaster_id
@@ -301,6 +324,7 @@ def admin_login():
             return "Invalid Admin Credentials"
 
     return render_template("admin_login.html")
+
 
 # ---------------- ADMIN LOGOUT ----------------
 @app.route("/logout")
@@ -348,7 +372,8 @@ def admin_dashboard():
     reports=reports
     )
 
-# # ---------------- DELETE REPORT ----------------
+
+# ---------------- DELETE REPORT ----------------
 @app.route("/delete/<int:id>")
 def delete(id):
 
@@ -357,7 +382,9 @@ def delete(id):
     conn.commit()
     conn.close()
     return redirect(url_for("admin_dashboard"))
-# ---------------- Approve  REPORT ----------------
+
+
+# ---------------- Approve REPORT ----------------
 @app.route("/approve/<int:id>")
 def approve(id):
 
@@ -369,6 +396,7 @@ def approve(id):
     conn.close()
 
     return redirect("/admin_dashboard")
+
 
 # ---------------- Reject REPORT ----------------
 @app.route("/reject/<int:id>")
@@ -384,7 +412,7 @@ def reject(id):
     return redirect("/admin_dashboard")
 
 
-# ----------------ADMIN REPORT ----------------
+# ---------------- ADMIN REPORT ----------------
 @app.route("/admin_report", methods=["GET", "POST"])
 def admin_report():
 
@@ -415,7 +443,8 @@ def admin_report():
     conn.close()
     return render_template("admin_report.html", disasters=disasters)
 
-# ----------------ANALYTICS  ----------------
+
+# ---------------- ANALYTICS ----------------
 @app.route("/analytics")
 def analytics():
 
@@ -436,11 +465,10 @@ def analytics():
 
     return render_template("analytics.html", labels=labels, values=values)
 
-# ----------------Emergency----------------
+
+# ---------------- Emergency ----------------
 @app.route('/emergency')
 def emergency():
-    import sqlite3
-
     conn = sqlite3.connect('database.db')
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
@@ -448,6 +476,46 @@ def emergency():
     contacts = cursor.fetchall()
     conn.close()
     return render_template('emergency.html', contacts=contacts)
+
+
+
+# ---------------- AI CHATBOT ----------------
+@app.route("/chat")
+def chat():
+    return render_template("chatbot.html")
+
+
+# ---------------- AI CHATBOT ----------------
+@app.route("/chatbot", methods=["POST"])
+def chatbot():
+    user_msg = request.json.get("message", "").lower()
+
+    response = ""
+
+    # 🚨 DISASTER RESPONSES
+    if "flood" in user_msg:
+        response = "⚠ Flood Alert: Move to higher ground. Avoid water currents.\n📞 Helpline: 1070"
+
+    elif "fire" in user_msg:
+        response = "🔥 Fire Emergency: Evacuate immediately. Do not use lift.\n📞 Fire: 101"
+
+    elif "earthquake" in user_msg:
+        response = "🌍 Earthquake: Drop, Cover, Hold.\nStay away from buildings.\n📞 Disaster: 112"
+
+    elif "landslide" in user_msg:
+        response = "⛰ Landslide Risk: Move away from slopes.\nStay alert.\n📞 Helpline: 1078"
+
+    elif "help" in user_msg or "emergency" in user_msg:
+        response = """🚨 Emergency Contacts:
+        Police: 100
+        Ambulance: 102
+        Disaster: 112
+        """
+
+    else:
+        response = "🤖 I can help with flood, fire, earthquake, landslide, or emergency."
+
+    return {"reply": response}
 
 # ---------------- RUN APP ----------------
 if __name__ == "__main__":
